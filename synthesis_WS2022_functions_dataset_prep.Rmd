@@ -1,0 +1,107 @@
+---
+title: "Dataset Preparation"
+author: "Noelle Schenk"
+date: "4/29/2022"
+output: html_document
+---
+
+# Functions dataset
+
+```{r}
+library(data.table)
+library(reshape2)
+library(BetaDivMultifun)
+# phylo traits course datasets
+path_to_data <- "/run/user/1000/gvfs/smb-share:server=nas-ips,share=ips/groups/planteco/PROJECTS/Exploratories Synthesis/Courses_Workshops/2022_PhyloTrait_Workshop/Data/"
+# functions dataset for metadata "funtab"
+path_to_functions <- "/run/user/1000/gvfs/smb-share:server=nas-ips,share=ips/groups/planteco/PROJECTS/Exploratories Synthesis/Data/Grassland_functions/27087_grassland_functions_bexis/27087_25_Dataset/"
+path_to_proj <- "/run/user/1000/gvfs/smb-share:server=nas-ips,share=ips/groups/planteco/PROJECTS/Exploratories Synthesis/Research Projects/BetaDivMultifun/"
+```
+
+1. List of available grassland functions
+2. Open-access dataset of grassland functions
+
+Make list of available grassland functions
+```{r, eval = F}
+funtab <- fread(paste(path_to_functions, "UPDATE29-04-22_synthesis_grassland_function_metadata_ID27087.csv", sep = ""))
+write.csv(unique(funtab[, .(ColumnName, ground)]), "funnames.csv")
+# see the excel table made from this one
+```
+
+
+## 17 selected functions which can go together in an analysis
+Clean functions to open-access dataset of grassland functions
+```{r}
+imputed_grlfuns <- readRDS(paste(path_to_proj, "/data_assembly/output_data/imputed_and_compound_grlfuns.rds", sep = ""))
+imputed_grlfuns[, herbivory.20172018 := NULL] # only non-open access function is herbivory.20172018
+ncol(imputed_grlfuns)
+fwrite(imputed_grlfuns, "27087_17_selected_grassland_functions.csv")
+```
+
+## Biomass over years
+```{r}
+grlfuns <- fread(paste(path_to_functions, "bexis_to_wide_format_output.csv", sep = ""))
+grlfuns <- fread(paste(path_to_functions, "27087_25_data.csv", sep = ""))
+grlfuns <- grlfuns[, .(Plotn, Year, Biomass)]
+grlfuns <- grlfuns[Year %in% seq(2008, 2017, 1)]
+fwrite(grlfuns, "27087_grl_functions_biomass_yearly.csv", sep = ";")
+```
+
+
+
+# Covariates
+
+## LUI
+```{r}
+### create delta LUI dataset ----
+deltaLUI <- fread(paste(path_to_data, "deltaLUI.csv", sep = ""))
+deltaLUI[, YEAR := 0000]
+deltaLUI <- deltaLUI[, .(Plotn, YEAR, deltaLUI, deltaGstd, deltaMstd, deltaFstd)]
+### create LUI dataset ----
+LUI <- fread(paste(path_to_data, "LUIData/LUI_new components set_global_separately_2022-04-29.txt", sep = ""))
+# clean LUI
+LUI[, EXPLO := NULL]
+LUI$YEAR <- as.numeric(sub("\\)", "", sub("separately\\(", "", LUI$YEAR, perl = F)))
+# change PlotIDs
+setnames(LUI, old = c("PLOTID"), new = c("Plot"))
+a <- c(paste("AEG", stringr::str_pad(seq(1, 50), 2, pad = "0"), sep = ""),
+  paste("HEG", stringr::str_pad(seq(1, 50), 2, pad = "0"), sep = ""),
+  paste("SEG", stringr::str_pad(seq(1, 50), 2, pad = "0"), sep = ""))
+b <- c(paste("AEG", seq(1, 50), sep = ""),
+  paste("HEG", seq(1, 50), sep = ""),
+  paste("SEG", seq(1, 50), sep = ""))
+usefulplotids <- data.table(Plot = b, Plotn = a)
+LUI <- merge(usefulplotids, LUI, by = "Plot")
+LUI[, Plot := NULL]
+# calc year 0 : mean over all years
+year0 <- data.table(merge(merge(merge(
+  aggregate(LUI ~ Plotn, LUI, mean),
+      aggregate(G_STD ~ Plotn, LUI, mean), by = "Plotn"),
+      aggregate(M_STD ~ Plotn, LUI, mean), by = "Plotn"),
+      aggregate(F_STD ~ Plotn, LUI, mean), by = "Plotn"))
+year0[, YEAR := 0]
+LUI <- rbindlist(list(LUI, year0), use.names = T)
+# merge delta LUI with LUI dataset
+combLUI <- merge(LUI, deltaLUI, by = c("Plotn", "YEAR"), all = T)
+setnames(combLUI, old = c("YEAR"), new = c("Year"))
+fwrite(combLUI, file = "combinedLUI.csv", sep = ";")
+```
+
+## covariates
+plot isolation, longitude and latitude of plots
+soil covariates : run parts of the BetaDivMultifun scripts : "clean_and_load_soil_covariates.Rmd", "calc_covariates.Rmd"
+```{r}
+covariates <- fread(paste(path_to_data, "raw_soil_and_landscape_covariates.csv", sep =""))
+```
+
+raw soil variables + 1st axis of a PCA
+Calculate PCA of soil variables
+```{r}
+soilpca_output <- pca_from_glsoil$x[, 1:3]
+soilpca_output <- data.table(cbind("Plotn" = rownames(soilpca_output), soilpca_output))
+colnames(soilpca_output)[-1] <- paste("soil", colnames(soilpca_output)[-1], sep = "")
+# merge to covariates
+covariates <- merge(covariates, soilpca_output, by = "Plotn", all = T)
+fwrite(covariates, "soil_and_landscape_covariates.csv", sep = ";")
+```
+

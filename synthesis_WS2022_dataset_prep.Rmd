@@ -1,0 +1,63 @@
+---
+title: "Dataset prep"
+author: "Noelle Schenk"
+date: "4/29/2022"
+output: html_document
+---
+
+# Preparation of datasets
+```{r}
+library(data.table)
+library(reshape2)
+# phylo traits course datasets
+path_to_data <- "/run/user/1000/gvfs/smb-share:server=nas-ips,share=ips/groups/planteco/PROJECTS/Exploratories Synthesis/Courses_Workshops/2022_PhyloTrait_Workshop/Data/"
+# read in datasets
+plant_traits <- fread(paste(path_to_data, "Plant_traits_grassland.txt", sep = "")) # species x trait format
+plant_diversity <- fread(paste(path_to_data, "27386_plant_dataset.txt", sep = ""))
+grlfuns <- fread(paste(path_to_data, "27087_17_selected_imputed_grassland_functions.csv", sep = ""))
+ygrlfuns <- fread(paste(path_to_data, "27087_grl_functions_biomass_yearly.csv", sep = ""))
+LUI <- fread(paste(path_to_data, "combinedLUI.csv", sep = ""))
+covariates <- fread(paste(path_to_data, "soil_and_landscape_covariates.csv", sep = ""))
+```
+
+Clean dataset names
+```{r}
+# plant diversity ----
+setnames(plant_diversity, old = "Useful_EP_PlotID", new = "Plotn")
+plant_diversity <- plant_diversity[, .(Plotn, Year, Species, Cover)]
+# calculate year 0
+# for year 0, take mean cover over years 2008 to 2016
+year0 <- data.table(aggregate(Cover ~ Plotn + Species, plant_diversity[Year %in% seq(2008, 2016, 1)], mean))
+year0[, Year := 0]
+# merge to plant_diversity dataset
+plant_diversity <- rbindlist(list(plant_diversity, year0), use.names = T)
+rm(year0)
+# functions ----
+setcolorder(grlfuns, neworder = c("Plotn")) # take Plotn as first column
+grlfuns[, Year := 0] # add aggregated year 0
+grlfuns <- merge(grlfuns, ygrlfuns, by = c("Plotn", "Year", "Biomass"), all = T)
+# LUI ----
+# plant traits ----
+setnames(plant_traits, old = c("Sps"), new = c("Species"))
+```
+
+
+SPECIES INFORMATION AND PLOT INFORMATION
+```{r}
+# SPECIES INFORMATION
+length(unique(plant_diversity$Species)) # 376 different species in plant diversity dataset
+length(unique(plant_traits$Species))    # 376 different species in plant diversity dataset
+species_plot_yearXcover_traits <- merge(plant_diversity, plant_traits, by = "Species")
+length(unique(fulltable$Species)) # 375 unique plant species - OK
+length(unique(fulltable$Plotn)) # 150 plots
+fwrite(species_plotXcover_traits, file = "SynthWS_speciesXplantcover_planttraits.csv", sep = ";")
+
+# PLOT INFORMATION
+# add functions
+# add LUI
+plot_yearXfunctions_LUI_covariates <- merge(grlfuns, LUI, by = c("Plotn", "Year"))
+# add covariates
+plot_yearXfunctions_LUI_covariates <- merge(plot_yearXfunctions_LUI_covariates, covariates, by = "Plotn")
+fwrite(plot_yearXfunctions_LUI_covariates, file = "SyntWS_plotXfunctions_LUI_covariates.csv", sep = ";")
+```
+
